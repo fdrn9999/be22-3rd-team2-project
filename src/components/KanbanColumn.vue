@@ -1,7 +1,8 @@
 <script setup>
+import { computed } from 'vue';
 import TaskCard from './TaskCard.vue';
 
-defineProps({
+const props = defineProps({
   title: {
     type: String,
     required: true,
@@ -14,6 +15,10 @@ defineProps({
     type: Array,
     required: true,
   },
+  columnData: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const emit = defineEmits(['edit', 'toggleFavorite', 'dragStart', 'dragOver', 'drop']);
@@ -23,10 +28,16 @@ const columnColors = {
   inProgress: 'bg-blue-50 border-blue-200',
   done: 'bg-green-50 border-green-200',
 };
+
+const containerClass = computed(() => {
+  // Use color from columnData if available, otherwise fallback to predefined colors
+  const colorClass = props.columnData.color || columnColors[props.columnType] || 'bg-gray-50 border-gray-200';
+  return `flex-1 min-w-[300px] rounded-lg border-2 ${colorClass} p-4`;
+});
 </script>
 
 <template>
-  <div :class="`flex-1 min-w-[300px] rounded-lg border-2 ${columnColors[columnType]} p-4`">
+  <div :class="containerClass">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2">
         <h2 class="font-semibold text-gray-800">{{ title }}</h2>

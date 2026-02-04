@@ -1,44 +1,40 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { useRoute } from 'vue-router'; // Add route
+import { storeToRefs } from 'pinia';
 import KanbanColumn from './KanbanColumn.vue';
 import TaskModal from './TaskModal.vue';
 import FilterBar from './FilterBar.vue';
 import ActivityTimeline from './ActivityTimeline.vue';
 import AlertModal from './AlertModal.vue';
 import { ChevronLeft, MoreVertical, Plus, Edit, Trash2 } from 'lucide-vue-next';
+import { useKanbanStore } from '../stores/kanbanStore';
 
 const props = defineProps({
-  board: {
-    type: Object,
-    required: true,
-  },
-  tasks: {
-    type: Array,
-    required: true,
-  },
-  logs: {
-    type: Array,
-    required: true,
-  },
-  currentUserEmail: {
-    type: String,
-    required: true,
-  },
-  availableUsers: {
-    type: Array,
-    default: () => [],
-  },
-  onEditBoard: {
-    type: Function,
-    default: null,
-  },
-  onDeleteBoard: {
-    type: Function,
-    default: null,
-  },
+  id: String // From Router
 });
 
-const emit = defineEmits(['back', 'tasksChange', 'logsChange', 'boardUpdate']);
+const emit = defineEmits(['back', 'edit-board', 'delete-board']);
+
+const store = useKanbanStore();
+const route = useRoute();
+const { selectedBoard, boardTasks, boardLogs, currentUser } = storeToRefs(store);
+
+// Initialize board from route or prop
+onMounted(() => {
+  const boardId = props.id || route.params.id;
+  if (boardId) {
+    store.selectBoard(boardId);
+  }
+});
+
+watch(() => props.id, (newId) => {
+  if (newId) store.selectBoard(newId);
+});
+
+const board = computed(() => selectedBoard.value || {});
+const tasks = computed(() => boardTasks.value);
+const logs = computed(() => boardLogs.value);
 
 const selectedTask = ref(null);
 const isModalOpen = ref(false);
@@ -62,13 +58,13 @@ const selectedPriority = ref('All');
 
 // 담당자 목록 추출
 const assignees = computed(() => {
-  const allAssignees = props.tasks.flatMap((task) => task.assignees || []);
+  const allAssignees = tasks.value.flatMap((task) => task.assignees || []);
   return Array.from(new Set(allAssignees)).sort();
 });
 
 // 필터링된 작업 목록
 const filteredTasks = computed(() => {
-  return props.tasks.filter((task) => {
+  return tasks.value.filter((task) => {
     const assigneeMatch =
       selectedAssignee.value === 'All' ||
       (task.assignees && task.assignees.includes(selectedAssignee.value));
@@ -77,17 +73,29 @@ const filteredTasks = computed(() => {
   });
 });
 
-// 칼럼별 작업 분류
-const tasksByColumn = computed(() => {
-  return {
-    todo: filteredTasks.value.filter((task) => task.column === 'todo'),
-    inProgress: filteredTasks.value.filter((task) => task.column === 'inProgress'),
-    done: filteredTasks.value.filter((task) => task.column === 'done'),
-  };
+// 동적 컬럼 정의 (데이터가 없으면 기본값 사용)
+const columns = computed(() => {
+  if (board.value.columns && board.value.columns.length > 0) {
+    return board.value.columns;
+  }
+  return [
+    { id: 'todo', title: '할 일', color: 'bg-slate-50 border-slate-200' },
+    { id: 'inProgress', title: '진행 중', color: 'bg-blue-50 border-blue-200' },
+    { id: 'done', title: '완료', color: 'bg-green-50 border-green-200' }
+  ];
 });
 
-const isCreator = computed(() => props.board.createdBy === props.currentUserEmail);
-const hasBoardActions = computed(() => Boolean(props.onEditBoard || props.onDeleteBoard));
+// 칼럼별 작업 분류 (동적)
+const tasksByColumn = computed(() => {
+  const grouped = {};
+  columns.value.forEach(col => {
+    grouped[col.id] = filteredTasks.value.filter(t => t.column === col.id);
+  });
+  return grouped;
+});
+
+const isCreator = computed(() => board.value.createdBy === currentUser.value?.email);
+const hasBoardActions = computed(() => true); // Access control can be stricter if needed
 
 const handleDocumentClick = (event) => {
   if (!menuRef.value) return;
@@ -105,7 +113,7 @@ onBeforeUnmount(() => {
 });
 
 // 활동 로그 추가
-const addLog = (action, taskTitle, details, taskId) => {
+const addLog = async (action, taskTitle, details, taskId) => {
   const newLog = {
     id: `log${Date.now()}`,
     taskId,
@@ -113,32 +121,31 @@ const addLog = (action, taskTitle, details, taskId) => {
     action,
     timestamp: new Date(),
     details,
-    boardId: props.board.id,
+    boardId: board.value.id,
   };
-  emit('logsChange', [newLog, ...props.logs]);
+  await store.addLogItem(newLog);
 };
 
 // 작업 저장
-const handleSaveTask = (task) => {
+const handleSaveTask = async (task) => {
   if (isNewTask.value) {
-    const newTask = { ...task, id: `task${Date.now()}`, createdAt: new Date(), boardId: props.board.id };
-    emit('tasksChange', [...props.tasks, newTask]);
+    const newTask = { ...task, id: `task${Date.now()}`, createdAt: new Date(), boardId: board.value.id };
+    await store.addTask(newTask);
     addLog('작업 생성', newTask.title, `"${newTask.title}" 작업이 생성되었습니다.`, newTask.id);
     showAlert('업무가 생성되었습니다.', '완료');
   } else {
-    const oldTask = props.tasks.find((t) => t.id === task.id);
-    emit('tasksChange', props.tasks.map((t) => (t.id === task.id ? task : t)));
+    const oldTask = tasks.value.find((t) => t.id === task.id);
+    await store.updateTaskItem(task);
     
     if (oldTask && oldTask.column !== task.column) {
-      const columnNames = {
-        todo: '할 일',
-        inProgress: '진행 중',
-        done: '완료',
-      };
+      const colMap = columns.value.reduce((acc, col) => ({...acc, [col.id]: col.title}), {});
+      const oldColName = colMap[oldTask.column] || oldTask.column;
+      const newColName = colMap[task.column] || task.column;
+
       addLog(
         '작업 이동',
         task.title,
-        `"${task.title}" 작업이 ${columnNames[oldTask.column]}에서 ${columnNames[task.column]}(으)로 이동되었습니다.`,
+        `"${task.title}" 작업이 ${oldColName}에서 ${newColName}(으)로 이동되었습니다.`,
         task.id
       );
     } else {
@@ -152,10 +159,10 @@ const handleSaveTask = (task) => {
 };
 
 // 작업 삭제
-const handleDeleteTask = (taskId) => {
-  const task = props.tasks.find((t) => t.id === taskId);
+const handleDeleteTask = async (taskId) => {
+  const task = tasks.value.find((t) => t.id === taskId);
   if (task) {
-    emit('tasksChange', props.tasks.filter((t) => t.id !== taskId));
+    await store.removeTask(taskId);
     addLog('작업 삭제', task.title, `"${task.title}" 작업이 삭제되었습니다.`, taskId);
     showAlert('업무가 삭제되었습니다.', '완료');
     isModalOpen.value = false;
@@ -174,7 +181,7 @@ const handleAddTask = (columnType) => {
     column: columnType,
     createdAt: new Date(),
     updatedAt: new Date(),
-    boardId: props.board.id,
+    boardId: board.value.id,
   };
   isNewTask.value = true;
   isModalOpen.value = true;
@@ -189,20 +196,19 @@ const handleDragOver = (e) => {
   e.preventDefault();
 };
 
-const handleDrop = (columnType) => {
+const handleDrop = async (columnType) => {
   if (draggedTask.value && draggedTask.value.column !== columnType) {
     const updatedTask = { ...draggedTask.value, column: columnType, updatedAt: new Date() };
-    emit('tasksChange', props.tasks.map((t) => (t.id === draggedTask.value.id ? updatedTask : t)));
+    await store.updateTaskItem(updatedTask);
     
-    const columnNames = {
-      todo: '할 일',
-      inProgress: '진행 중',
-      done: '완료',
-    };
+    const colMap = columns.value.reduce((acc, col) => ({...acc, [col.id]: col.title}), {});
+    const oldColName = colMap[draggedTask.value.column] || draggedTask.value.column;
+    const newColName = colMap[columnType] || columnType;
+
     addLog(
       '작업 이동',
       draggedTask.value.title,
-      `"${draggedTask.value.title}" 작업이 ${columnNames[draggedTask.value.column]}에서 ${columnNames[columnType]}(으)로 이동되었습니다.`,
+      `"${draggedTask.value.title}" 작업이 ${oldColName}에서 ${newColName}(으)로 이동되었습니다.`,
       draggedTask.value.id
     );
   }
@@ -217,11 +223,11 @@ const handleEditTask = (task) => {
 };
 
 // 즐겨찾기 토글
-const handleToggleFavorite = (taskId) => {
-  const task = props.tasks.find((t) => t.id === taskId);
+const handleToggleFavorite = async (taskId) => {
+  const task = tasks.value.find((t) => t.id === taskId);
   if (task) {
     const updatedTask = { ...task, isFavorite: !task.isFavorite, updatedAt: new Date() };
-    emit('tasksChange', props.tasks.map((t) => (t.id === taskId ? updatedTask : t)));
+    await store.updateTaskItem(updatedTask);
     addLog(
       updatedTask.isFavorite ? '즐겨찾기 추가' : '즐겨찾기 해제',
       task.title,
@@ -314,10 +320,9 @@ const handleReset = () => {
               >
                 <!-- 수정 버튼 -->
                 <button
-                  v-if="onEditBoard"
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
                   @click="() => {
-                    onEditBoard(board);
+                    emit('edit-board', board);
                     showBoardMenu = false;
                   }"
                 >
@@ -326,14 +331,13 @@ const handleReset = () => {
                 </button>
 
                 <!-- 구분선 -->
-                <div v-if="onEditBoard && onDeleteBoard" class="my-1 border-t border-gray-100" />
+                <div class="my-1 border-t border-gray-100" />
 
                 <!-- 삭제 버튼 -->
                 <button
-                  v-if="onDeleteBoard"
                   class="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
                   @click="() => {
-                    onDeleteBoard(board.id);
+                    emit('delete-board', board.id);
                     showBoardMenu = false;
                   }"
                 >
@@ -356,32 +360,15 @@ const handleReset = () => {
         @reset="handleReset"
       />
 
-      <!-- 칸반 보드 -->
+      <!-- 칸반 보드 (동적 렌더링) -->
       <div class="flex gap-4 mb-8 overflow-x-auto pb-4">
         <KanbanColumn
-          title="할 일"
-          column-type="todo"
-          :tasks="tasksByColumn.todo"
-          @edit="handleEditTask"
-          @toggle-favorite="handleToggleFavorite"
-          @drag-start="handleDragStart"
-          @drag-over="handleDragOver"
-          @drop="handleDrop"
-        />
-        <KanbanColumn
-          title="진행 중"
-          column-type="inProgress"
-          :tasks="tasksByColumn.inProgress"
-          @edit="handleEditTask"
-          @toggle-favorite="handleToggleFavorite"
-          @drag-start="handleDragStart"
-          @drag-over="handleDragOver"
-          @drop="handleDrop"
-        />
-        <KanbanColumn
-          title="완료"
-          column-type="done"
-          :tasks="tasksByColumn.done"
+          v-for="col in columns"
+          :key="col.id"
+          :title="col.title"
+          :column-type="col.id"
+          :column-data="col"
+          :tasks="tasksByColumn[col.id] || []"
           @edit="handleEditTask"
           @toggle-favorite="handleToggleFavorite"
           @drag-start="handleDragStart"
@@ -400,7 +387,7 @@ const handleReset = () => {
         :is-new-task="isNewTask"
         :board-members="board.members"
         :board-created-by="board.createdBy"
-        :available-users="availableUsers"
+        :available-users="store.registeredUsers"
         @close="() => {
           isModalOpen = false;
           selectedTask = null;

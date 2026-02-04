@@ -135,6 +135,11 @@ export const useKanbanStore = defineStore('kanban', {
           createdAt: new Date().toISOString(),
           createdBy: this.currentUser?.email || '',
           createdByName: this.currentUser?.name || '',
+          columns: [
+            { id: 'todo', title: '할 일', color: 'bg-slate-50 border-slate-200' },
+            { id: 'inProgress', title: '진행 중', color: 'bg-blue-50 border-blue-200' },
+            { id: 'done', title: '완료', color: 'bg-green-50 border-green-200' }
+          ]
         };
         this.boards = [...this.boards, newBoard];
         try {
@@ -179,31 +184,40 @@ export const useKanbanStore = defineStore('kanban', {
         ...relatedLogs.map((log) => deleteLog(log.id).catch(() => {})),
       ]);
     },
-    async updateTasks(newTasks) {
-      const previousTasks = this.tasks;
-      this.tasks = newTasks;
-
-      const previousById = new Map(previousTasks.map((task) => [task.id, task]));
-      const nextById = new Map(newTasks.map((task) => [task.id, task]));
-
-      const createdTasks = newTasks.filter((task) => !previousById.has(task.id));
-      const updatedTasks = newTasks.filter((task) => previousById.has(task.id));
-      const removedTasks = previousTasks.filter((task) => !nextById.has(task.id));
-
-      await Promise.all([
-        ...createdTasks.map((task) => createTask(task).catch(() => {})),
-        ...updatedTasks.map((task) => updateTask(task).catch(() => {})),
-        ...removedTasks.map((task) => deleteTask(task.id).catch(() => {})),
-      ]);
+    async addTask(task) {
+      this.tasks.push(task);
+      try {
+        await createTask(task);
+      } catch (error) {
+        // Fallback
+      }
     },
-    async updateLogs(newLogs) {
-      const previousLogs = this.logs;
-      this.logs = newLogs;
-
-      const previousIds = new Set(previousLogs.map((log) => log.id));
-      const createdLogs = newLogs.filter((log) => !previousIds.has(log.id));
-
-      await Promise.all(createdLogs.map((log) => createLog(log).catch(() => {})));
+    async updateTaskItem(task) {
+      const index = this.tasks.findIndex((t) => t.id === task.id);
+      if (index !== -1) {
+        this.tasks[index] = task;
+        try {
+          await updateTask(task);
+        } catch (error) {
+          // Fallback
+        }
+      }
+    },
+    async removeTask(taskId) {
+      this.tasks = this.tasks.filter((t) => t.id !== taskId);
+      try {
+        await deleteTask(taskId);
+      } catch (error) {
+        // Fallback
+      }
+    },
+    async addLogItem(log) {
+      this.logs = [log, ...this.logs];
+      try {
+        await createLog(log);
+      } catch (error) {
+        // Fallback
+      }
     },
   },
 });
