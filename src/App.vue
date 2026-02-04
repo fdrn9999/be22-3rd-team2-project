@@ -8,6 +8,7 @@ import ProfileModal from './components/ProfileModal.vue';
 import AlertModal from './components/AlertModal.vue';
 import ConfirmModal from './components/ConfirmModal.vue';
 import { useKanbanStore } from './stores/kanbanStore';
+import Footer from './components/Footer.vue';
 
 const store = useKanbanStore();
 const router = useRouter();
@@ -140,6 +141,7 @@ const handleBoardClick = (boardId) => {
   router.push(`/board/${boardId}`);
 };
 
+
 const handleTaskClick = (task) => {
   const check = store.checkBoardAccess(task.boardId);
   if (!check.allowed) {
@@ -165,17 +167,20 @@ const handleTaskClick = (task) => {
     />
 
     <!-- 메인 콘텐츠 영역 -->
-    <div class="flex-1 overflow-hidden relative">
-      <router-view
-        @login="handleLogin"
-        @register="handleRegister"
-        @create-board="handleCreateBoard"
-        @edit-board="handleEditBoard"
-        @delete-board="handleDeleteBoard"
-        @board-click="handleBoardClick"
-        @task-click="handleTaskClick"
-        @back="() => router.push('/')"
-      />
+    <div class="flex-1 flex flex-col overflow-hidden relative">
+      <div class="flex-1 overflow-y-auto">
+        <router-view
+          @login="handleLogin"
+          @register="handleRegister"
+          @create-board="handleCreateBoard"
+          @edit-board="handleEditBoard"
+          @delete-board="handleDeleteBoard"
+          @board-click="handleBoardClick"
+          @task-click="handleTaskClick"
+          @back="() => router.push('/')"
+        />
+      </div>
+      <Footer v-if="!isLoginPage" />
     </div>
 
     <!-- 모달 컴포넌트들 -->

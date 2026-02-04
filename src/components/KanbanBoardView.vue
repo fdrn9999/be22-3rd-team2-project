@@ -244,7 +244,7 @@ const handleReset = () => {
 </script>
 
 <template>
-  <div class="flex-1 h-screen overflow-y-auto bg-gradient-to-br from-slate-50 to-blue-50">
+  <div class="min-h-full bg-gradient-to-br from-slate-50 to-blue-50">
     <div class="max-w-7xl mx-auto p-6">
       <!-- 헤더 -->
       <div class="mb-6">

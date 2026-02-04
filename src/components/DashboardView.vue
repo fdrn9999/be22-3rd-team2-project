@@ -110,7 +110,7 @@ const getColumnLabel = (column) => {
 </script>
 
 <template>
-  <div class="flex-1 h-screen overflow-y-auto bg-gray-50">
+  <div class="min-h-full bg-gray-50">
     <div class="max-w-6xl mx-auto p-8">
       <!-- 헤더 -->
       <div class="mb-8">
