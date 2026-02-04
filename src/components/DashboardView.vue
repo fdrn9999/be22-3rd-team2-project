@@ -1,59 +1,46 @@
 <script setup>
 import { ref, computed } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useRouter } from 'vue-router'; // Unused but good practice if needed for nav
 import BoardCard from './BoardCard.vue';
+import { useKanbanStore } from '../stores/kanbanStore';
 import { Search, Plus, CheckSquare, Star } from 'lucide-vue-next';
+
 const props = defineProps({
-  boards: {
-    type: Array,
-    required: true,
-  },
-  tasks: {
-    type: Array,
-    required: true,
-  },
-  currentView: {
+  viewType: {
     type: String,
-    required: true,
-  },
-  currentUserName: {
-    type: String,
-    required: true,
-  },
-  currentUserEmail: {
-    type: String,
-    required: true,
-  },
-  registeredUsers: {
-    type: Array,
-    default: () => [],
-  },
+    default: 'dashboard', // 'dashboard', 'myTasks', 'favorites'
+  }
 });
 
 const emit = defineEmits(['boardClick', 'createBoard', 'taskClick']);
 
+const store = useKanbanStore();
+const { boards, tasks, registeredUsers, currentUser } = storeToRefs(store);
+
 const searchQuery = ref('');
 
-// 현재 뷰에 따라 필터링
+// 현재 뷰 타이틀 및 설명
 const viewTitle = computed(() => {
-  if (props.currentView === 'myTasks') return '나에게 할당된 업무';
-  if (props.currentView === 'favorites') return '즐겨찾기 업무';
+  if (props.viewType === 'myTasks') return '나에게 할당된 업무';
+  if (props.viewType === 'favorites') return '즐겨찾기 업무';
   return '대시보드';
 });
 
 const viewDescription = computed(() => {
-  if (props.currentView === 'myTasks') return '내가 담당자로 지정된 모든 업무를 확인하세요';
-  if (props.currentView === 'favorites') return '즐겨찾기로 설정한 중요한 업무들';
+  if (props.viewType === 'myTasks') return '내가 담당자로 지정된 모든 업무를 확인하세요';
+  if (props.viewType === 'favorites') return '즐겨찾기로 설정한 중요한 업무들';
   return '모든 칸반 보드를 한눈에 관리하세요';
 });
 
 const searchPlaceholder = computed(() => {
-  return props.currentView === 'dashboard' ? '보드 검색...' : '업무 검색...';
+  return props.viewType === 'dashboard' ? '보드 검색...' : '업무 검색...';
 });
 
 const accessibleBoards = computed(() =>
-  props.boards.filter((board) => {
-    const isCreator = board.createdBy === props.currentUserEmail;
-    const isMember = board.members?.some((member) => member.email === props.currentUserEmail);
+  boards.value.filter((board) => {
+    const isCreator = board.createdBy === currentUser.value?.email;
+    const isMember = board.members?.some((member) => member.email === currentUser.value?.email);
     return isCreator || isMember;
   })
 );
@@ -68,10 +55,10 @@ const filteredBoards = computed(() =>
 );
 
 const myTasks = computed(() =>
-  props.tasks.filter(
+  tasks.value.filter(
     (task) =>
       accessibleBoardIds.value.has(task.boardId) &&
-    task.assignees.includes(props.currentUserName)
+    task.assignees.includes(currentUser.value?.name)
   )
 );
 
@@ -83,7 +70,7 @@ const filteredMyTasks = computed(() =>
 );
 
 const favoriteTasks = computed(() =>
-  props.tasks.filter(
+  tasks.value.filter(
     (task) => accessibleBoardIds.value.has(task.boardId) && task.isFavorite
   )
 );

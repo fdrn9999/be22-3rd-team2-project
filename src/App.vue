@@ -1,28 +1,21 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useRouter, useRoute } from 'vue-router';
 import Sidebar from './components/Sidebar.vue';
-import DashboardView from './components/DashboardView.vue';
-import KanbanBoardView from './components/KanbanBoardView.vue';
 import BoardModal from './components/BoardModal.vue';
-import LoginPage from './components/LoginPage.vue';
 import ProfileModal from './components/ProfileModal.vue';
 import AlertModal from './components/AlertModal.vue';
 import { useKanbanStore } from './stores/kanbanStore';
 
 const store = useKanbanStore();
+const router = useRouter();
+const route = useRoute();
+
 const {
   isLoggedIn,
   currentUser,
-  currentView,
-  selectedBoardId,
-  boards,
-  tasks,
-  logs,
   registeredUsers,
-  selectedBoard,
-  boardTasks,
-  boardLogs,
 } = storeToRefs(store);
 
 const isBoardModalOpen = ref(false);
@@ -33,83 +26,55 @@ const isAlertOpen = ref(false);
 const alertTitle = ref('알림');
 const alertMessage = ref('');
 
+// Check if current route is login page
+const isLoginPage = computed(() => route.name === 'Login');
+
 const showAlert = (message, title = '알림') => {
   alertTitle.value = title;
   alertMessage.value = message;
   isAlertOpen.value = true;
 };
 
-onMounted(() => {
-  store.initialize();
+onMounted(async () => {
+  await store.initialize();
+  // Redirect handled by router guards
 });
 
+// Login/Register Handlers (emitted from LoginPage via router-view)
 const handleLogin = async (email, password, callback) => {
   const success = await store.loginUser(email, password);
-  callback(success);
+  if (success) {
+    router.push('/');
+  }
+  if (callback) callback(success);
 };
 
 const handleRegister = async (name, email, password, callback) => {
   const success = await store.registerUser(name, email, password);
-  callback(success);
+  if (callback) callback(success);
 };
 
 const handleLogout = () => {
   if (window.confirm('정말 로그아웃하시겠습니까?')) {
     store.logoutUser();
+    router.push('/login');
   }
 };
 
-const handleLogoClick = () => {
-  store.selectBoard(null);
-  store.setView('dashboard');
-};
-
-const handleBoardClick = (boardId) => {
-  const board = boards.value.find((b) => b.id === boardId);
-  if (!board) {
-    alert('보드를 찾을 수 없습니다.');
-    return;
-  }
-
-  const isCreator = board.createdBy === currentUser.value?.email;
-  const isMember = board.members?.some((member) => member.email === currentUser.value?.email);
-
-  if (!isCreator && !isMember) {
-    alert('이 보드에 접근할 권한이 없습니다. 보드 참여자만 볼 수 있습니다.');
-    return;
-  }
-
-  store.selectBoard(boardId);
-};
-
-const handleBackToDashboard = () => {
-  store.selectBoard(null);
-  store.setView('dashboard');
-};
+// Navigation Handlers
+const handleLogoClick = () => router.push('/');
 
 const handleViewChange = (view) => {
-  store.setView(view);
-  store.selectBoard(null);
+  if (view === 'dashboard') router.push('/');
+  else if (view === 'myTasks') router.push('/my-tasks');
+  else if (view === 'favorites') router.push('/favorites');
 };
 
-const handleTaskClick = (task) => {
-  const board = boards.value.find((b) => b.id === task.boardId);
-  if (!board) {
-    alert('보드를 찾을 수 없습니다.');
-    return;
-  }
-
-  const isCreator = board.createdBy === currentUser.value?.email;
-  const isMember = board.members?.some((member) => member.email === currentUser.value?.email);
-
-  if (!isCreator && !isMember) {
-    alert('이 보드에 접근할 권한이 없습니다.');
-    return;
-  }
-
-  store.selectBoard(task.boardId);
+const handleProfileClick = () => {
+  isProfileModalOpen.value = true;
 };
 
+// Board Actions (emitted from DashboardView/KanbanBoardView)
 const handleCreateBoard = () => {
   editingBoard.value = null;
   isNewBoard.value = true;
@@ -122,13 +87,15 @@ const handleEditBoard = (board) => {
   isBoardModalOpen.value = true;
 };
 
+const getBoardTitle = (id) => {
+    return store.boards.find(b => b.id === id)?.title;
+}
+
 const handleDeleteBoard = async (boardId) => {
-  if (!window.confirm('정말 이 보드를 삭제하시겠습니까?')) return;
+  if (!window.confirm(`정말 '${getBoardTitle(boardId)}' 보드를 삭제하시겠습니까?`)) return;
+  
   await store.deleteBoard(boardId);
-  if (selectedBoardId.value === boardId) {
-    store.selectBoard(null);
-    store.setView('dashboard');
-  }
+  router.push('/');
   showAlert('보드가 삭제되었습니다.', '완료');
 };
 
@@ -141,79 +108,70 @@ const handleSaveBoard = async (board) => {
   showAlert(wasNew ? '보드가 생성되었습니다.' : '보드가 수정되었습니다.', '완료');
 };
 
-const handleBoardUpdate = async (updatedBoard) => {
-  await store.updateBoard(updatedBoard);
-};
-
-const handleOpenProfileModal = () => {
-  isProfileModalOpen.value = true;
-};
-
-const handleCloseProfileModal = () => {
-  isProfileModalOpen.value = false;
-};
-
 const handleUpdateProfile = async (user) => {
   await store.updateProfile(user);
 };
+
+// Task/Board Click Handlers (from Dashboard)
+const handleBoardClick = (boardId) => {
+  router.push(`/board/${boardId}`);
+};
+
+const handleTaskClick = (task) => {
+  const board = store.boards.find((b) => b.id === task.boardId);
+  if (!board) {
+    alert('보드를 찾을 수 없습니다.');
+    return;
+  }
+  
+  // Access control check (could be moved to guard or store)
+  const isCreator = board.createdBy === currentUser.value?.email;
+  const isMember = board.members?.some((member) => member.email === currentUser.value?.email);
+
+  if (!isCreator && !isMember) {
+    alert('이 보드에 접근할 권한이 없습니다.');
+    return;
+  }
+
+  router.push(`/board/${task.boardId}`);
+};
+
 </script>
 
 <template>
-  <!-- 로그인하지 않은 경우 -->
-  <LoginPage 
-    v-if="!isLoggedIn || !currentUser"
-    @login="handleLogin"
-    @register="handleRegister"
-  />
-
-  <!-- 로그인한 경우 -->
-  <div v-else class="flex h-screen overflow-hidden">
-    <!-- 사이드바 -->
+  <div class="flex h-screen overflow-hidden">
+    <!-- 사이드바: 로그인 상태이고 로그인 페이지가 아닐 때만 표시 -->
     <Sidebar
+      v-if="isLoggedIn && !isLoginPage"
       :user="currentUser"
-      :current-view="currentView"
+      :current-view="store.currentView"
       @view-change="handleViewChange"
       @logout="handleLogout"
-      @profile-click="handleOpenProfileModal"
+      @profile-click="handleProfileClick"
       @logo-click="handleLogoClick"
     />
 
-    <!-- 메인 콘텐츠 -->
-    <KanbanBoardView
-      v-if="selectedBoard"
-      :board="selectedBoard"
-      :tasks="boardTasks"
-      :logs="boardLogs"
-      :current-user-email="currentUser.email"
-      :available-users="registeredUsers"
-      :on-edit-board="handleEditBoard"
-      :on-delete-board="handleDeleteBoard"
-      @back="handleBackToDashboard"
-      @tasks-change="(newTasks) => store.updateTasks(newTasks)"
-      @logs-change="(newLogs) => store.updateLogs(newLogs)"
-      @board-update="handleBoardUpdate"
-    />
+    <!-- 메인 콘텐츠 영역 -->
+    <div class="flex-1 overflow-hidden relative">
+      <router-view
+        @login="handleLogin"
+        @register="handleRegister"
+        @create-board="handleCreateBoard"
+        @edit-board="handleEditBoard"
+        @delete-board="handleDeleteBoard"
+        @board-click="handleBoardClick"
+        @task-click="handleTaskClick"
+        @back="() => router.push('/')"
+      />
+    </div>
 
-    <DashboardView
-      v-else
-      :boards="boards"
-      :tasks="tasks"
-      :current-view="currentView"
-      :current-user-name="currentUser.name"
-      :current-user-email="currentUser.email"
-      :registered-users="registeredUsers"
-      @board-click="handleBoardClick"
-      @create-board="handleCreateBoard"
-      @task-click="handleTaskClick"
-    />
-
-    <!-- 보드 생성/수정 모달 -->
+    <!-- 모달 컴포넌트들 -->
     <BoardModal
       :board="editingBoard"
       :is-open="isBoardModalOpen"
       :is-new-board="isNewBoard"
       :available-users="registeredUsers"
-      :current-user-email="currentUser.email"
+      :current-user-email="currentUser?.email"
       @close="() => {
         isBoardModalOpen = false;
         editingBoard = null;
@@ -222,11 +180,11 @@ const handleUpdateProfile = async (user) => {
       @save="handleSaveBoard"
     />
 
-    <!-- 프로필 수정 모달 -->
     <ProfileModal
+      v-if="currentUser"
       :user="currentUser"
       :is-open="isProfileModalOpen"
-      @close="handleCloseProfileModal"
+      @close="isProfileModalOpen = false"
       @save="handleUpdateProfile"
     />
 
